@@ -4,7 +4,7 @@ import { getSheets, getSpreadsheetId } from '../../../lib/google-sheets';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { vendedor, cliente, scores, puntuacion_global } = body;
+    const { vendedor, cliente, scores, puntuacion_global, puntuaciones_dimensiones } = body;
 
     const sheets = getSheets();
     const spreadsheetId = getSpreadsheetId();
@@ -20,6 +20,8 @@ export async function POST(request: NextRequest) {
       second: '2-digit',
     });
 
+    const dims = puntuaciones_dimensiones || {};
+
     const row = [
       fecha,                                    // A: fecha_generacion
       vendedor?.codigo || '',                   // B: codigo_vendedor
@@ -31,11 +33,18 @@ export async function POST(request: NextRequest) {
       cliente?.empresa || '',                   // H: empresa_cliente
       JSON.stringify(scores || {}),             // I: datos_formulario
       puntuacion_global || '',                  // J: puntuacion_global
+      dims.finanzas ?? '',                      // K: finanzas
+      dims.operaciones ?? '',                   // L: operaciones
+      dims.riesgos ?? '',                       // M: riesgos
+      dims.talento ?? '',                       // N: talento
+      dims.mercadeo ?? '',                      // O: mercadeo
+      dims.gobernanza ?? '',                    // P: gobernanza
+      dims.tecnologia ?? '',                    // Q: tecnologia
     ];
 
     await sheets.spreadsheets.values.append({
       spreadsheetId,
-      range: 'Registro!A:J',
+      range: 'Registro!A:Q',
       valueInputOption: 'USER_ENTERED',
       requestBody: {
         values: [row],

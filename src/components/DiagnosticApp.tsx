@@ -138,6 +138,9 @@ export const DiagnosticApp: React.FC = () => {
           },
           scores,
           puntuacion_global: overallScore.toFixed(1),
+          puntuaciones_dimensiones: Object.fromEntries(
+            reportData.map(d => [d.subject.toLowerCase(), d.actual.toFixed(1)])
+          ),
         }),
       });
     } catch (error) {
