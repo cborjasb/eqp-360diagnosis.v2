@@ -111,7 +111,7 @@ export const DiagnosticApp: React.FC = () => {
       `;
 
       const response = await ai.models.generateContent({
-        model: 'gemini-2.0-flash',
+        model: 'gemini-2.0-flash-lite',
         contents: prompt,
         config: { systemInstruction, temperature: 0.7 },
       });
@@ -251,7 +251,8 @@ export const DiagnosticApp: React.FC = () => {
 
     } catch (error) {
       console.error("Error general:", error);
-      alert("Ocurrió un error en el proceso. Por favor verifica la consola para más detalles.");
+      const errMsg = error instanceof Error ? error.message : String(error);
+      alert(`Ocurrió un error: ${errMsg}. Por favor intente nuevamente.`);
     } finally {
       setIsProcessing(false);
       setIsLeadFormOpen(false);
