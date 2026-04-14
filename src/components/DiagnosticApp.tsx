@@ -111,7 +111,7 @@ export const DiagnosticApp: React.FC = () => {
       `;
 
       const response = await ai.models.generateContent({
-        model: 'gemini-2.0-flash-lite',
+        model: 'gemini-1.5-pro',
         contents: prompt,
         config: { systemInstruction, temperature: 0.7 },
       });
