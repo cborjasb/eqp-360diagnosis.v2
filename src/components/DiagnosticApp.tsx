@@ -211,12 +211,44 @@ export const DiagnosticApp: React.FC = () => {
 
       let chartImageHeight = 0;
       if (chartRef.current) {
-        const chartCanvas = await html2canvas(chartRef.current, { scale: 2, backgroundColor: '#ffffff' });
-        const imgData = chartCanvas.toDataURL('image/png');
-        const imgWidth = 140;
-        chartImageHeight = (chartCanvas.height * imgWidth) / chartCanvas.width;
-        const x = (pageWidth - imgWidth) / 2;
-        pdf.addImage(imgData, 'PNG', x, 45, imgWidth, chartImageHeight);
+        try {
+          // Fix Tailwind v4 lab() colors that html2canvas can't parse
+          const el = chartRef.current;
+          const allElements = [el, ...Array.from(el.querySelectorAll('*'))] as HTMLElement[];
+          const originalStyles: { element: HTMLElement; color: string; bg: string; border: string }[] = [];
+
+          allElements.forEach((element) => {
+            const computed = window.getComputedStyle(element);
+            originalStyles.push({
+              element,
+              color: element.style.color,
+              bg: element.style.backgroundColor,
+              border: element.style.borderColor,
+            });
+            // Force RGB colors to avoid lab() parsing errors
+            element.style.color = computed.color;
+            element.style.backgroundColor = computed.backgroundColor;
+            element.style.borderColor = computed.borderColor;
+          });
+
+          const chartCanvas = await html2canvas(el, { scale: 2, backgroundColor: '#ffffff', useCORS: true });
+
+          // Restore original styles
+          originalStyles.forEach(({ element, color, bg, border }) => {
+            element.style.color = color;
+            element.style.backgroundColor = bg;
+            element.style.borderColor = border;
+          });
+
+          const imgData = chartCanvas.toDataURL('image/png');
+          const imgWidth = 140;
+          chartImageHeight = (chartCanvas.height * imgWidth) / chartCanvas.width;
+          const x = (pageWidth - imgWidth) / 2;
+          pdf.addImage(imgData, 'PNG', x, 45, imgWidth, chartImageHeight);
+        } catch (chartError) {
+          console.warn("No se pudo capturar el gráfico para el PDF:", chartError);
+          // Continue without chart image - PDF will still generate
+        }
       }
 
       let currentY = 45 + chartImageHeight + 10;
