@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useRef } from 'react';
+import { useState, useMemo } from 'react';
 import { DIMENSIONS, INITIAL_SCORES } from '../lib/constants';
 import { ScoreInput } from './ScoreInput';
 import { RadarReport } from './RadarReport';
@@ -9,7 +9,6 @@ import { LeadFormModal } from './LeadFormModal';
 import { AccessCodeScreen } from './AccessCodeScreen';
 import { ScoresState, DimensionKey, ChartDataPoint, LeadFormData, VendorData } from '../lib/types';
 import { LayoutDashboard, FileText, Sparkles, CheckCircle, Info, PlayCircle, Loader2, UserCheck } from 'lucide-react';
-import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 import emailjs from '@emailjs/browser';
 
@@ -26,7 +25,6 @@ export const DiagnosticApp: React.FC = () => {
   const [lastFormData, setLastFormData] = useState<LeadFormData | null>(null);
   const [isContacting, setIsContacting] = useState(false);
   const [contactSuccess, setContactSuccess] = useState(false);
-  const chartRef = useRef<HTMLDivElement>(null);
 
   const handleValidCode = (vendorData: VendorData) => {
     setVendor(vendorData);
@@ -140,60 +138,70 @@ export const DiagnosticApp: React.FC = () => {
       pdf.text(`Fecha: ${new Date().toLocaleDateString()}`, margin, 35);
       pdf.text(`Puntaje Global: ${overallScore.toFixed(1)} / 5.0`, pageWidth - margin, 35, { align: 'right' });
 
-      let chartImageHeight = 0;
-      if (chartRef.current) {
-        try {
-          // Fix Tailwind v4 lab() colors that html2canvas can't parse
-          const el = chartRef.current;
-          const allElements = [el, ...Array.from(el.querySelectorAll('*'))] as HTMLElement[];
-          const originalStyles: { element: HTMLElement; color: string; bg: string; border: string }[] = [];
-
-          allElements.forEach((element) => {
-            const computed = window.getComputedStyle(element);
-            originalStyles.push({
-              element,
-              color: element.style.color,
-              bg: element.style.backgroundColor,
-              border: element.style.borderColor,
-            });
-            // Force RGB colors to avoid lab() parsing errors
-            element.style.color = computed.color;
-            element.style.backgroundColor = computed.backgroundColor;
-            element.style.borderColor = computed.borderColor;
-          });
-
-          const chartCanvas = await html2canvas(el, { scale: 2, backgroundColor: '#ffffff', useCORS: true });
-
-          // Restore original styles
-          originalStyles.forEach(({ element, color, bg, border }) => {
-            element.style.color = color;
-            element.style.backgroundColor = bg;
-            element.style.borderColor = border;
-          });
-
-          const imgData = chartCanvas.toDataURL('image/png');
-          const imgWidth = 140;
-          chartImageHeight = (chartCanvas.height * imgWidth) / chartCanvas.width;
-          const x = (pageWidth - imgWidth) / 2;
-          pdf.addImage(imgData, 'PNG', x, 45, imgWidth, chartImageHeight);
-        } catch (chartError) {
-          console.warn("No se pudo capturar el gráfico para el PDF:", chartError);
-          // Continue without chart image - PDF will still generate
-        }
-      }
-
-      let currentY = 45 + chartImageHeight + 10;
+      // --- Visual Bar Chart drawn directly in PDF ---
+      let currentY = 45;
       pdf.setFontSize(14);
       pdf.setTextColor(23, 37, 84);
-      pdf.text("Resumen de Métricas", margin, currentY);
-      currentY += 8;
-      pdf.setFontSize(10);
-      pdf.setTextColor(0, 0, 0);
+      pdf.text("Mapa de Vulnerabilidad", margin, currentY);
+      currentY += 10;
+
+      const barMaxWidth = pageWidth - margin * 2 - 45;
+      const barHeight = 8;
+      const barSpacing = 14;
+
       reportData.forEach((item) => {
-        pdf.text(`${item.subject}`, margin, currentY);
-        pdf.text(`${item.actual.toFixed(1)}`, pageWidth - margin - 20, currentY, { align: 'right' });
-        currentY += 6;
+        const barWidth = (item.actual / 5) * barMaxWidth;
+        const gap = item.ideal - item.actual;
+
+        // Label
+        pdf.setFontSize(10);
+        pdf.setTextColor(40, 40, 40);
+        pdf.text(item.subject, margin, currentY + 5.5);
+
+        const barX = margin + 42;
+
+        // Background bar (ideal = 5.0)
+        pdf.setFillColor(229, 231, 235);
+        pdf.roundedRect(barX, currentY, barMaxWidth, barHeight, 2, 2, 'F');
+
+        // Actual score bar with color coding
+        if (gap > 2.5) {
+          pdf.setFillColor(239, 68, 68);   // red
+        } else if (gap > 1.0) {
+          pdf.setFillColor(245, 158, 11);  // amber
+        } else {
+          pdf.setFillColor(34, 197, 94);   // green
+        }
+        if (barWidth > 0) {
+          pdf.roundedRect(barX, currentY, barWidth, barHeight, 2, 2, 'F');
+        }
+
+        // Score text
+        pdf.setFontSize(9);
+        pdf.setTextColor(60, 60, 60);
+        pdf.text(`${item.actual.toFixed(1)}`, barX + barMaxWidth + 3, currentY + 5.5);
+
+        currentY += barSpacing;
       });
+
+      // Legend
+      currentY += 5;
+      pdf.setFontSize(8);
+      pdf.setTextColor(120, 120, 120);
+      const legendY = currentY;
+      pdf.setFillColor(34, 197, 94);
+      pdf.rect(margin, legendY - 3, 6, 6, 'F');
+      pdf.text('Sólido (brecha < 1.0)', margin + 8, legendY + 1);
+
+      pdf.setFillColor(245, 158, 11);
+      pdf.rect(margin + 50, legendY - 3, 6, 6, 'F');
+      pdf.text('Mejorable (brecha 1.0 - 2.5)', margin + 58, legendY + 1);
+
+      pdf.setFillColor(239, 68, 68);
+      pdf.rect(margin + 115, legendY - 3, 6, 6, 'F');
+      pdf.text('Crítico (brecha > 2.5)', margin + 123, legendY + 1);
+
+      currentY += 10;
 
       pdf.addPage();
       pdf.setFillColor(240, 249, 255);
@@ -509,7 +517,7 @@ export const DiagnosticApp: React.FC = () => {
               </h2>
             </div>
 
-            <div className="bg-white rounded-xl border border-gray-100 p-4" ref={chartRef}>
+            <div className="bg-white rounded-xl border border-gray-100 p-4">
               <div className="mb-4 text-center">
                 <h3 className="text-gray-500 text-sm uppercase tracking-wide font-semibold">Mapa de Vulnerabilidad</h3>
               </div>
