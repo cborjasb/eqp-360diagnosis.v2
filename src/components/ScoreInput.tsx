@@ -1,19 +1,13 @@
 'use client';
 
-import { DimensionDef, DimensionKey } from '../lib/types';
-import {
-  Banknote, Settings, ShieldAlert, Users, Megaphone, Gavel, Cpu,
-  ChevronDown, ChevronUp, Info
-} from 'lucide-react';
-
-const ICON_MAP: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
-  Banknote, Settings, ShieldAlert, Users, Megaphone, Gavel, Cpu
-};
+import { DiagDimension } from '../lib/sectors/questionnaire-types';
+import { getIcon } from '../lib/icons';
+import { ChevronDown, ChevronUp, Info } from 'lucide-react';
 
 interface ScoreInputProps {
-  dimension: DimensionDef;
+  dimension: DiagDimension;
   scores: number[];
-  onChange: (dimKey: DimensionKey, index: number, value: number) => void;
+  onChange: (dimKey: string, index: number, value: number) => void;
   isOpen: boolean;
   onToggle: () => void;
 }
@@ -26,7 +20,7 @@ export const ScoreInput: React.FC<ScoreInputProps> = ({
   onToggle
 }) => {
   const average = scores.reduce((a, b) => a + b, 0) / scores.length;
-  const Icon = ICON_MAP[dimension.iconName] || Banknote;
+  const Icon = getIcon(dimension.iconName);
 
   const getScoreColor = (score: number) => {
     if (score < 2) return 'text-red-600 bg-red-50 border-red-200';
@@ -47,7 +41,7 @@ export const ScoreInput: React.FC<ScoreInputProps> = ({
           <div>
             <h3 className="font-semibold text-gray-800">{dimension.label}</h3>
             <p className="text-xs text-gray-500">
-              {isOpen ? 'Evalúe los 4 indicadores clave' : `${dimension.questions.length} indicadores`}
+              {isOpen ? `Evalúe los ${dimension.questions.length} indicadores clave` : `${dimension.questions.length} indicadores`}
             </p>
           </div>
         </div>

@@ -1,5 +1,39 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { GoogleGenAI } from "@google/genai";
+import { getReportContext } from '../../../lib/sectors/registry';
+import { getFileSearchTools, RAG_GROUNDING_INSTRUCTION } from '../../../lib/rag/file-search';
+
+const GEMINI_MODEL = 'gemini-2.5-flash';
+
+/**
+ * Llama a la API REST de generateContent vía fetch.
+ * Usamos REST (no el SDK) porque el SDK, dentro del runtime de Next 16,
+ * devuelve contenido vacío al adjuntar el tool fileSearch.
+ */
+async function generateViaRest(params: {
+  apiKey: string;
+  systemInstruction: string;
+  prompt: string;
+  temperature: number;
+  tools?: unknown[];
+}): Promise<string> {
+  const body: Record<string, unknown> = {
+    systemInstruction: { parts: [{ text: params.systemInstruction }] },
+    contents: [{ role: 'user', parts: [{ text: params.prompt }] }],
+    generationConfig: { temperature: params.temperature },
+  };
+  if (params.tools) body.tools = params.tools;
+
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${params.apiKey}`,
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), cache: 'no-store' },
+  );
+  const json = await res.json();
+  if (!res.ok || json.error) {
+    throw new Error(json?.error?.message || `Gemini REST HTTP ${res.status}`);
+  }
+  const parts = json?.candidates?.[0]?.content?.parts ?? [];
+  return parts.map((p: { text?: string }) => p.text ?? '').join('');
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -11,12 +45,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { formData, scoresSummary, overallScore } = await request.json();
+    const { formData, scoresSummary, overallScore, sectorId, sectorLabel } = await request.json();
 
     const nameParts = formData.nombre.trim().split(' ');
     const lastName = nameParts.length > 0 ? nameParts[nameParts.length - 1] : formData.nombre;
-
-    const ai = new GoogleGenAI({ apiKey });
 
     const systemInstruction = `Actúa como un Consultor Senior experto en Estrategia y Perdurabilidad Empresarial de la firma "Empresas que Perduran".
 
@@ -60,8 +92,18 @@ export async function POST(request: NextRequest) {
       5. Cierre comercial: Siempre cierra cada sección crítica sugiriendo que un consultor de Empresas que Perduran puede ayudarle a resolver esto de forma personalizada.
       6. Uso de datos: Integra naturalmente las estadísticas y citas en el texto. No las listes como bullets sino como parte de la narrativa persuasiva.`;
 
+    // Contexto específico del sector + RAG (si está configurado).
+    const ragTools = getFileSearchTools(sectorId);
+    const sectorContext = sectorId ? getReportContext(sectorId) : '';
+
+    const composedInstruction = [
+      systemInstruction,
+      sectorContext ? `\n\nCONTEXTO DEL SECTOR DEL CLIENTE:\n${sectorContext}` : '',
+      ragTools ? `\n${RAG_GROUNDING_INSTRUCTION}` : '',
+    ].join('');
+
     const prompt = `
-        Analiza el siguiente diagnóstico de la empresa "${formData.empresa}".
+        Analiza el siguiente diagnóstico de la empresa "${formData.empresa}"${sectorLabel ? `, que opera en el sector: ${sectorLabel}` : ''}.
         Puntaje Global: ${overallScore} / 5.0.
 
         Desglose de áreas:
@@ -89,13 +131,26 @@ export async function POST(request: NextRequest) {
         +1 (305) 564-5805
       `;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
-      config: { systemInstruction, temperature: 0.7 },
+    let text = await generateViaRest({
+      apiKey,
+      systemInstruction: composedInstruction,
+      prompt,
+      temperature: 0.7,
+      tools: ragTools,
     });
 
-    return NextResponse.json({ text: response.text || '' });
+    // Salvaguarda: si el RAG devolviera vacío, reintentar sin tools para
+    // garantizar siempre un informe (sectorial, aunque sin grounding).
+    if (!text && ragTools) {
+      text = await generateViaRest({
+        apiKey,
+        systemInstruction: composedInstruction,
+        prompt,
+        temperature: 0.7,
+      });
+    }
+
+    return NextResponse.json({ text });
   } catch (error) {
     console.error("Error generating AI analysis:", error);
     const errMsg = error instanceof Error ? error.message : String(error);

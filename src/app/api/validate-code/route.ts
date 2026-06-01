@@ -3,10 +3,28 @@ import { getSheets, getSpreadsheetId } from '../../../lib/google-sheets';
 
 // TODO: Eliminar este código de prueba cuando Google Sheets esté configurado
 const TEST_VENDORS = [
-  { codigo: 'TEST-001', nombre: 'Carlos Borjas (Prueba)', email: 'carlos@test.com', empresa: 'Empresas que Perduran', estado: 'activo' },
-  { codigo: 'TEST-002', nombre: 'Vendedor Demo', email: 'demo@test.com', empresa: 'Demo Corp', estado: 'activo' },
-  { codigo: 'TEST-OFF', nombre: 'Vendedor Suspendido', email: 'off@test.com', empresa: 'Suspendida LLC', estado: 'suspendido' },
+  // Nivel COMPLETO: acceso a todos los sectores.
+  { codigo: 'TEST-001', nombre: 'Carlos Borjas (Prueba)', email: 'carlos@test.com', empresa: 'Empresas que Perduran', estado: 'activo', nivelAcceso: 'completo' as const, sectoresPermitidos: [] },
+  { codigo: 'TEST-002', nombre: 'Vendedor Demo', email: 'demo@test.com', empresa: 'Demo Corp', estado: 'activo', nivelAcceso: 'completo' as const, sectoresPermitidos: [] },
+  // Nivel LIMITADO: solo Logística (sector piloto).
+  { codigo: 'TEST-LOG', nombre: 'Aliado Logística', email: 'log@test.com', empresa: 'Solo Logística C.A.', estado: 'activo', nivelAcceso: 'limitado' as const, sectoresPermitidos: ['logistica-cadena-suministro'] },
+  { codigo: 'TEST-OFF', nombre: 'Vendedor Suspendido', email: 'off@test.com', empresa: 'Suspendida LLC', estado: 'suspendido', nivelAcceso: 'completo' as const, sectoresPermitidos: [] },
 ];
+
+type AccessLevel = 'completo' | 'limitado';
+
+/** Normaliza el nivel de acceso leído de Sheets; por defecto 'completo'. */
+function parseNivel(raw: unknown): AccessLevel {
+  return String(raw ?? '').trim().toLowerCase() === 'limitado' ? 'limitado' : 'completo';
+}
+
+/** Convierte la celda de sectores ("id1, id2; id3") en lista de ids. */
+function parseSectores(raw: unknown): string[] {
+  return String(raw ?? '')
+    .split(/[,;]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -47,7 +65,7 @@ export async function POST(request: NextRequest) {
 
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: 'Vendedores!A:E',
+      range: 'Vendedores!A:G',
     });
 
     const rows = response.data.values;
@@ -79,6 +97,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const nivelAcceso = parseNivel(match[5]);
     return NextResponse.json({
       valid: true,
       vendor: {
@@ -87,6 +106,8 @@ export async function POST(request: NextRequest) {
         email: match[2]?.toString().trim() || '',
         empresa: match[3]?.toString().trim() || '',
         estado: 'activo',
+        nivelAcceso,
+        sectoresPermitidos: nivelAcceso === 'limitado' ? parseSectores(match[6]) : [],
       },
     });
   } catch (error) {

@@ -4,7 +4,7 @@ import { getSheets, getSpreadsheetId } from '../../../lib/google-sheets';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { vendedor, cliente, scores, puntuacion_global, puntuaciones_dimensiones } = body;
+    const { vendedor, cliente, sector, sectorId, scores, puntuacion_global, puntuaciones_dimensiones } = body;
 
     const sheets = getSheets();
     const spreadsheetId = getSpreadsheetId();
@@ -40,11 +40,13 @@ export async function POST(request: NextRequest) {
       dims.mercadeo ?? '',                      // O: mercadeo
       dims.gobernanza ?? '',                    // P: gobernanza
       dims.tecnologia ?? '',                    // Q: tecnologia
+      sector || '',                             // R: sector (etiqueta legible)
+      sectorId || '',                           // S: sector_id
     ];
 
     await sheets.spreadsheets.values.append({
       spreadsheetId,
-      range: 'Registro!A:Q',
+      range: 'Registro!A:S',
       valueInputOption: 'USER_ENTERED',
       requestBody: {
         values: [row],

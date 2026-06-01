@@ -37,10 +37,30 @@ export interface LeadFormData {
   celular: string;
 }
 
+/**
+ * Nivel de acceso de un código de autorización:
+ *  - 'completo': puede generar diagnóstico de CUALQUIER sector.
+ *  - 'limitado': solo los sectores listados en `sectoresPermitidos`.
+ */
+export type AccessLevel = 'completo' | 'limitado';
+
 export interface VendorData {
   codigo: string;
   nombre: string;
   email: string;
   empresa: string;
   estado: string;
+  /** Nivel de acceso del código. Por defecto 'completo' (retrocompat). */
+  nivelAcceso: AccessLevel;
+  /**
+   * Ids de sector habilitados cuando nivelAcceso === 'limitado'.
+   * Vacío/ignorado cuando es 'completo'.
+   */
+  sectoresPermitidos: string[];
+}
+
+/** Sector (+ subsector opcional) elegido para el diagnóstico. */
+export interface SectorSelection {
+  sectorId: string;
+  subsectorId?: string;
 }

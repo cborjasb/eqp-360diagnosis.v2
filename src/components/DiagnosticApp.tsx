@@ -1,24 +1,27 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { DIMENSIONS, INITIAL_SCORES } from '../lib/constants';
 import { ScoreInput } from './ScoreInput';
 import { RadarReport } from './RadarReport';
 import { AnalysisSection } from './AnalysisSection';
 import { LeadFormModal } from './LeadFormModal';
 import { AccessCodeScreen } from './AccessCodeScreen';
-import { ScoresState, DimensionKey, ChartDataPoint, LeadFormData, VendorData } from '../lib/types';
+import { SectorSelectionScreen } from './SectorSelectionScreen';
+import { ChartDataPoint, LeadFormData, VendorData, SectorSelection } from '../lib/types';
+import { DynamicScores } from '../lib/sectors/questionnaire-types';
+import { getQuestionnaireDimensions, buildInitialScores, getSelectionLabel } from '../lib/sectors/registry';
 import { LayoutDashboard, FileText, Sparkles, CheckCircle, Info, PlayCircle, Loader2, UserCheck } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import emailjs from '@emailjs/browser';
 
-type ViewState = 'access' | 'welcome' | 'assessment' | 'success';
+type ViewState = 'access' | 'welcome' | 'sector' | 'assessment' | 'success';
 
 export const DiagnosticApp: React.FC = () => {
   const [currentView, setCurrentView] = useState<ViewState>('access');
   const [vendor, setVendor] = useState<VendorData | null>(null);
-  const [scores, setScores] = useState<ScoresState>(INITIAL_SCORES);
-  const [openSection, setOpenSection] = useState<DimensionKey | null>(null);
+  const [selection, setSelection] = useState<SectorSelection | null>(null);
+  const [scores, setScores] = useState<DynamicScores>({});
+  const [openSection, setOpenSection] = useState<string | null>(null);
   const [isLeadFormOpen, setIsLeadFormOpen] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('');
@@ -26,26 +29,45 @@ export const DiagnosticApp: React.FC = () => {
   const [isContacting, setIsContacting] = useState(false);
   const [contactSuccess, setContactSuccess] = useState(false);
 
+  // Dimensiones del cuestionario según el sector/subsector elegido.
+  const dimensions = useMemo(
+    () => (selection ? getQuestionnaireDimensions(selection.sectorId, selection.subsectorId) : []),
+    [selection],
+  );
+  const selectionLabel = selection
+    ? getSelectionLabel(selection.sectorId, selection.subsectorId)
+    : null;
+
   const handleValidCode = (vendorData: VendorData) => {
     setVendor(vendorData);
     setCurrentView('welcome');
   };
 
-  const handleScoreChange = (dimKey: DimensionKey, index: number, value: number) => {
+  const handleSelectSector = (sel: SectorSelection) => {
+    const dims = getQuestionnaireDimensions(sel.sectorId, sel.subsectorId);
+    setSelection(sel);
+    setScores(buildInitialScores(dims));
+    setOpenSection(null);
+    setCurrentView('assessment');
+  };
+
+  const handleScoreChange = (dimKey: string, index: number, value: number) => {
     setScores(prev => ({
       ...prev,
-      [dimKey]: prev[dimKey].map((s, i) => i === index ? value : s)
+      [dimKey]: (prev[dimKey] ?? []).map((s, i) => i === index ? value : s)
     }));
   };
 
-  const toggleSection = (key: DimensionKey) => {
+  const toggleSection = (key: string) => {
     setOpenSection(openSection === key ? null : key);
   };
 
   const reportData: ChartDataPoint[] = useMemo(() => {
-    return DIMENSIONS.map(dim => {
-      const dimScores = scores[dim.key];
-      const average = dimScores.reduce((a, b) => a + b, 0) / dimScores.length;
+    return dimensions.map(dim => {
+      const dimScores = scores[dim.key] ?? [];
+      const average = dimScores.length
+        ? dimScores.reduce((a, b) => a + b, 0) / dimScores.length
+        : 0;
       return {
         subject: dim.label,
         actual: parseFloat(average.toFixed(1)),
@@ -53,9 +75,11 @@ export const DiagnosticApp: React.FC = () => {
         fullMark: 5
       };
     });
-  }, [scores]);
+  }, [scores, dimensions]);
 
-  const overallScore = reportData.reduce((acc, curr) => acc + curr.actual, 0) / reportData.length;
+  const overallScore = reportData.length
+    ? reportData.reduce((acc, curr) => acc + curr.actual, 0) / reportData.length
+    : 0;
 
   const generateAIAnalysis = async (formData: LeadFormData, data: ChartDataPoint[]) => {
     try {
@@ -68,6 +92,9 @@ export const DiagnosticApp: React.FC = () => {
           formData,
           scoresSummary,
           overallScore: overallScore.toFixed(1),
+          sectorId: selection?.sectorId ?? null,
+          subsectorId: selection?.subsectorId ?? null,
+          sectorLabel: selectionLabel,
         }),
       });
 
@@ -98,6 +125,9 @@ export const DiagnosticApp: React.FC = () => {
             email: formData.email,
             empresa: formData.empresa,
           },
+          sector: selectionLabel,
+          sectorId: selection?.sectorId ?? '',
+          subsectorId: selection?.subsectorId ?? '',
           scores,
           puntuacion_global: overallScore.toFixed(1),
           puntuaciones_dimensiones: Object.fromEntries(
@@ -138,8 +168,14 @@ export const DiagnosticApp: React.FC = () => {
       pdf.text(`Fecha: ${new Date().toLocaleDateString()}`, margin, 35);
       pdf.text(`Puntaje Global: ${overallScore.toFixed(1)} / 5.0`, pageWidth - margin, 35, { align: 'right' });
 
+      if (selectionLabel) {
+        pdf.setFontSize(11);
+        pdf.setTextColor(37, 99, 235);
+        pdf.text(`Sector: ${selectionLabel}`, margin, 43);
+      }
+
       // --- Visual Bar Chart drawn directly in PDF ---
-      let currentY = 45;
+      let currentY = selectionLabel ? 52 : 45;
       pdf.setFontSize(14);
       pdf.setTextColor(23, 37, 84);
       pdf.text("Mapa de Vulnerabilidad", margin, currentY);
@@ -322,8 +358,8 @@ export const DiagnosticApp: React.FC = () => {
             )}
             <div className="grid sm:grid-cols-3 gap-6 mb-10 text-left">
               <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
-                <div className="font-bold text-slate-800 mb-1">Rápido</div>
-                <p className="text-sm text-slate-600">Evalúe 7 dimensiones clave de forma ágil.</p>
+                <div className="font-bold text-slate-800 mb-1">Por sector</div>
+                <p className="text-sm text-slate-600">Preguntas adaptadas al rubro específico de la empresa.</p>
               </div>
               <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
                 <div className="font-bold text-slate-800 mb-1">Visual</div>
@@ -335,11 +371,11 @@ export const DiagnosticApp: React.FC = () => {
               </div>
             </div>
             <button
-              onClick={() => setCurrentView('assessment')}
+              onClick={() => setCurrentView('sector')}
               className="w-full sm:w-auto bg-slate-900 hover:bg-slate-800 text-white text-lg font-semibold py-4 px-10 rounded-xl shadow-lg shadow-slate-900/20 transition-all transform hover:scale-[1.02] flex items-center justify-center gap-3 mx-auto"
             >
               <PlayCircle size={24} />
-              Generar Informe Personalizado
+              Pedir Diagnóstico
             </button>
             <p className="mt-6 text-xs text-gray-400">
               Herramienta gratuita basada en la metodología de Empresas que Perduran.
@@ -347,6 +383,17 @@ export const DiagnosticApp: React.FC = () => {
           </div>
         </div>
       </div>
+    );
+  }
+
+  // --- VISTA 1.5: SELECCIÓN DE SECTOR ---
+  if (currentView === 'sector' && vendor) {
+    return (
+      <SectorSelectionScreen
+        vendor={vendor}
+        onSelect={handleSelectSector}
+        onBack={() => setCurrentView('welcome')}
+      />
     );
   }
 
@@ -409,11 +456,12 @@ export const DiagnosticApp: React.FC = () => {
 
           <button
             onClick={() => {
-              setScores(INITIAL_SCORES);
+              setScores({});
+              setSelection(null);
               setOpenSection(null);
               setContactSuccess(false);
               setLastFormData(null);
-              setCurrentView('welcome');
+              setCurrentView('sector');
             }}
             className="text-gray-500 hover:text-gray-900 font-medium text-sm underline underline-offset-4"
           >
@@ -445,6 +493,9 @@ export const DiagnosticApp: React.FC = () => {
               <div className="flex items-center gap-2">
                 <h1 className="text-lg font-bold tracking-tight">Diagnóstico 360°</h1>
               </div>
+              {selectionLabel && (
+                <span className="text-xs text-blue-300">{selectionLabel}</span>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -468,7 +519,7 @@ export const DiagnosticApp: React.FC = () => {
           <div className="lg:col-span-5 space-y-4">
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-bold text-gray-800">Evaluación</h2>
-              <span className="text-sm text-gray-500">7 Dimensiones</span>
+              <span className="text-sm text-gray-500">{dimensions.length} Dimensiones</span>
             </div>
 
             <div className="bg-blue-50 border border-blue-100 rounded-lg p-4 mb-4">
@@ -487,17 +538,17 @@ export const DiagnosticApp: React.FC = () => {
                 </li>
                 <li className="flex gap-2">
                   <span className="bg-blue-200 text-blue-800 w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold shrink-0">3</span>
-                  <span>Cuando termine las 7 áreas, presione el botón <strong>&ldquo;Crear Informe&rdquo;</strong> en la parte inferior de la pantalla.</span>
+                  <span>Cuando termine todas las áreas, presione el botón <strong>&ldquo;Crear Informe&rdquo;</strong> en la parte inferior de la pantalla.</span>
                 </li>
               </ul>
             </div>
 
             <div className="space-y-3">
-              {DIMENSIONS.map(dim => (
+              {dimensions.map(dim => (
                 <ScoreInput
                   key={dim.key}
                   dimension={dim}
-                  scores={scores[dim.key]}
+                  scores={scores[dim.key] ?? dim.questions.map(() => 0)}
                   onChange={handleScoreChange}
                   isOpen={openSection === dim.key}
                   onToggle={() => toggleSection(dim.key)}
@@ -543,7 +594,7 @@ export const DiagnosticApp: React.FC = () => {
       <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4 shadow-[0_-4px_12px_rgba(0,0,0,0.1)] z-50">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="hidden sm:block text-sm text-gray-500">
-            Complete las 7 dimensiones y genere su informe estratégico
+            Complete las {dimensions.length} dimensiones y genere su informe estratégico
           </div>
           <button
             onClick={() => setIsLeadFormOpen(true)}
