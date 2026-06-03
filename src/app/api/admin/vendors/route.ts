@@ -78,7 +78,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Contraseña incorrecta.' }, { status: 401 });
   }
   try {
-    const { codigo, nivelAcceso, sectoresPermitidos } = await request.json();
+    const { codigo, nombre, nivelAcceso, sectoresPermitidos, crear } = await request.json();
     if (!codigo || typeof codigo !== 'string') {
       return NextResponse.json({ error: 'Falta el código.' }, { status: 400 });
     }
@@ -101,10 +101,29 @@ export async function POST(request: NextRequest) {
         break;
       }
     }
+
+    // --- CREAR un código nuevo (no debe existir) ---
+    if (crear) {
+      if (rowNum !== -1) {
+        return NextResponse.json({ error: 'Ese código ya existe.' }, { status: 409 });
+      }
+      await sheets.spreadsheets.values.append({
+        spreadsheetId,
+        range: 'Vendedores!A:G',
+        valueInputOption: 'USER_ENTERED',
+        insertDataOption: 'INSERT_ROWS',
+        requestBody: {
+          // A:codigo B:nombre C:email D:empresa E:estado F:nivel G:sectores
+          values: [[codigo.trim(), (nombre || '').toString().trim(), '', 'EQP', 'Activo', nivel, sectores]],
+        },
+      });
+      return NextResponse.json({ ok: true, creado: true });
+    }
+
+    // --- ACTUALIZAR nivel/sectores de un código existente ---
     if (rowNum === -1) {
       return NextResponse.json({ error: 'Código no encontrado en la hoja.' }, { status: 404 });
     }
-
     await sheets.spreadsheets.values.update({
       spreadsheetId,
       range: `Vendedores!F${rowNum}:G${rowNum}`,

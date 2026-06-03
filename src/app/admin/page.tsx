@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { SECTORS } from '../../lib/sectors/catalog';
-import { ShieldCheck, KeyRound, Loader2, Check, Save, AlertCircle, Lock, Unlock } from 'lucide-react';
+import { ShieldCheck, KeyRound, Loader2, Check, Save, AlertCircle, Lock, Unlock, Plus, X } from 'lucide-react';
 
 type Nivel = 'completo' | 'limitado';
 
@@ -22,6 +22,15 @@ export default function AdminPage() {
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [savingCode, setSavingCode] = useState<string | null>(null);
   const [savedCode, setSavedCode] = useState<string | null>(null);
+  // Alta de código nuevo
+  const [showNew, setShowNew] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [nuevo, setNuevo] = useState<{ codigo: string; nombre: string; nivelAcceso: Nivel; sectoresPermitidos: string[] }>({
+    codigo: '',
+    nombre: '',
+    nivelAcceso: 'completo',
+    sectoresPermitidos: [],
+  });
 
   const login = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -41,6 +50,46 @@ export default function AdminPage() {
       setError('No se pudo conectar con el servidor.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const refreshVendors = async () => {
+    const res = await fetch('/api/admin/vendors', { headers: { 'x-admin-key': adminKey } });
+    const data = await res.json();
+    if (res.ok) setVendors(data.vendors || []);
+  };
+
+  const toggleNuevoSector = (sectorId: string) => {
+    setNuevo((n) => ({
+      ...n,
+      sectoresPermitidos: n.sectoresPermitidos.includes(sectorId)
+        ? n.sectoresPermitidos.filter((s) => s !== sectorId)
+        : [...n.sectoresPermitidos, sectorId],
+    }));
+  };
+
+  const createVendor = async () => {
+    if (!nuevo.codigo.trim()) { setError('Escribe el código.'); return; }
+    setCreating(true);
+    setError('');
+    try {
+      const res = await fetch('/api/admin/vendors', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-admin-key': adminKey },
+        body: JSON.stringify({ ...nuevo, codigo: nuevo.codigo.trim(), crear: true }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || 'No se pudo crear el código.');
+      } else {
+        setNuevo({ codigo: '', nombre: '', nivelAcceso: 'completo', sectoresPermitidos: [] });
+        setShowNew(false);
+        await refreshVendors();
+      }
+    } catch {
+      setError('Error de conexión al crear.');
+    } finally {
+      setCreating(false);
     }
   };
 
@@ -143,6 +192,80 @@ export default function AdminPage() {
         {error && (
           <div className="p-3 bg-red-50 border border-red-200 rounded-lg flex items-start gap-2 text-sm text-red-700">
             <AlertCircle size={18} className="shrink-0 mt-0.5" /> {error}
+          </div>
+        )}
+
+        {/* Alta de código nuevo */}
+        {!showNew ? (
+          <button
+            onClick={() => { setShowNew(true); setError(''); }}
+            className="w-full bg-white border-2 border-dashed border-gray-300 hover:border-blue-400 hover:bg-blue-50 text-gray-600 hover:text-blue-700 rounded-xl py-4 font-medium flex items-center justify-center gap-2 transition-all"
+          >
+            <Plus size={18} /> Nuevo código
+          </button>
+        ) : (
+          <div className="bg-white rounded-xl border-2 border-blue-200 p-5 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-gray-800 flex items-center gap-2"><Plus size={18} className="text-blue-600" /> Crear código nuevo</h3>
+              <button onClick={() => setShowNew(false)} className="text-gray-400 hover:text-gray-700"><X size={18} /></button>
+            </div>
+            <div className="grid sm:grid-cols-2 gap-3 mb-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Código *</label>
+                <input
+                  value={nuevo.codigo}
+                  onChange={(e) => setNuevo({ ...nuevo, codigo: e.target.value })}
+                  placeholder="Ej: EQP-2026-008"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg font-mono text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Nombre del consultor</label>
+                <input
+                  value={nuevo.nombre}
+                  onChange={(e) => setNuevo({ ...nuevo, nombre: e.target.value })}
+                  placeholder="Ej: Juan Pérez"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                />
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-3 mb-4">
+              <button
+                onClick={() => setNuevo({ ...nuevo, nivelAcceso: 'completo' })}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium ${nuevo.nivelAcceso === 'completo' ? 'bg-green-600 text-white border-green-600' : 'bg-white text-gray-700 border-gray-300'}`}
+              >
+                <Unlock size={15} /> Acceso completo
+              </button>
+              <button
+                onClick={() => setNuevo({ ...nuevo, nivelAcceso: 'limitado' })}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium ${nuevo.nivelAcceso === 'limitado' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300'}`}
+              >
+                <Lock size={15} /> Limitado a sectores
+              </button>
+            </div>
+            {nuevo.nivelAcceso === 'limitado' && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 mb-4 p-3 bg-slate-50 rounded-lg border border-slate-100">
+                {SECTORS.map((s) => {
+                  const checked = nuevo.sectoresPermitidos.includes(s.id);
+                  return (
+                    <label key={s.id} className={`flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer text-sm border ${checked ? 'bg-blue-50 border-blue-300 text-blue-900' : 'bg-white border-gray-200 text-gray-700'}`}>
+                      <span className={`w-5 h-5 rounded flex items-center justify-center border shrink-0 ${checked ? 'bg-blue-600 border-blue-600' : 'bg-white border-gray-300'}`}>
+                        {checked && <Check size={14} className="text-white" />}
+                      </span>
+                      <input type="checkbox" className="sr-only" checked={checked} onChange={() => toggleNuevoSector(s.id)} />
+                      {s.shortLabel}
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+            <button
+              onClick={createVendor}
+              disabled={creating || !nuevo.codigo.trim()}
+              className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-5 py-2 rounded-lg flex items-center gap-2 disabled:opacity-60"
+            >
+              {creating ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />} Crear código
+            </button>
           </div>
         )}
 
